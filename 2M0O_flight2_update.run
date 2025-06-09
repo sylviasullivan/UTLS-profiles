@@ -1,0 +1,439 @@
+#!/bin/ksh
+#=============================================================================
+# mistral batch job parameters
+#-----------------------------------------------------------------------------
+#SBATCH --account=bb1430
+#SBATCH --job-name=2M0ODv1f2
+#SBATCH --partition=compute
+#SBATCH --nodes=80
+#SBATCH --threads-per-core=2
+#SBATCH --output=/work/bb1430/b380873/logs/tropic_logs/LOG_icon-tropic.run.%j.o
+#SBATCH --error=/work/bb1430/b380873/logs/tropic_logs/LOG_icon-tropic.run.%j.o
+#SBATCH --exclusive
+#SBATCH --time=02:00:00
+#SBATCH --mail-type=END
+#SBATCH --mail-user=sylvia@arizona.edu
+
+#=============================================================================
+#
+# ICON run script. Created by ./config/make_target_runscript
+# target machine is bullx
+# target use_compiler is intel
+# with mpi=yes
+# with openmp=yes
+# memory_model=large
+# submit with sbatch -N ${SLURM_JOB_NUM_NODES:-1}
+#
+#=============================================================================
+
+set -x
+
+# target parameters
+site="dkrz.de"
+target="bullx"
+compiler="intel"
+# >> sylvia_20230921 replaced intel; removed ncl, svn, fca, mxm
+loadmodule="intel-oneapi-mpi/2021.5.0-intel-2021.5.0 cdo/default"
+with_mpi="yes"
+with_openmp="yes"
+submit="sbatch -N ${SLURM_JOB_NUM_NODES:-1}"
+
+# >> sylvia_20230921 resetting the parallelization variables for levante
+# https://docs.dkrz.de/doc/levante/running-jobs/runtime-settings.html
+# openmp environment variables
+export KMP_AFFINITY="granularity=fine,scatter"
+export KMP_LIBRARY="turnaround"
+export OMP_NUM_THREADS=4
+
+# Intel MPI variables
+export I_MPI_PMI=pmi
+export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so
+
+# >> sylvia_20231002 adding only this OpenMPI environment specification 
+# from the url above, see e.g. LOG_icon-tropic.run.7150535.o
+export OMPI_MCA_pml_ucx_opal_mem_hooks=1
+
+# >> sylvia_20230921 commented out mpi_root below
+#mpi_root=/opt/mpi/bullxmpi_mlx/1.2.9.2
+no_of_nodes=${SLURM_JOB_NUM_NODES:=1}
+mpi_procs_pernode=$((${SLURM_JOB_CPUS_PER_NODE%%\(*} / 2 / OMP_NUM_THREADS))
+((mpi_total_procs=no_of_nodes * mpi_procs_pernode))
+START="srun --cpu-freq=HighM1 --kill-on-bad-exit=1 --nodes=${SLURM_JOB_NUM_NODES:-1} --cpu_bind=verbose,cores --distribution=block:block --ntasks=$((no_of_nodes * mpi_procs_pernode)) --ntasks-per-node=${mpi_procs_pernode} --cpus-per-task=$((2 * OMP_NUM_THREADS)) --propagate=STACK"
+
+# load modules
+module purge
+module load "$loadmodule"
+module list
+
+# >> sylvia_20230921 commented out LD_LIBRARY_PATH below.
+#export LD_LIBRARY_PATH=/sw/rhel6-x64/netcdf/netcdf_c-4.3.2-parallel-bullxmpi-intel14/lib:$LD_LIBRARY_PATH
+
+nproma=16
+cdo="cdo"
+cdo_diff="cdo diffn"
+
+# >> sylvia_20230921 setting the stack size
+# https://docs.dkrz.de/doc/levante/running-jobs/runtime-settings.html
+ulimit -s 2097152
+export EXPNAME=icon_tropic
+FILETYPE=5          # 2: GRIB2 / 4: NetCDF /5: NetCDF4
+INIDATE=2017080512  # for output file names
+
+# directories definition
+RUNSCRIPTDIR=/work/bb1430/b380873/          # run script directory
+ICONDIR=/work/bb1430/b380873/icon-2.6.4/          # icon model directory
+BINDIR=${ICONDIR}/bin/                            # binaries
+EXPDIR=/scratch/b/b380873/0V2M0A1R0O/
+ls -ld ${EXPDIR}
+cd ${EXPDIR}
+
+# >> sylvia_20230921 changed dmin_wetgrowth_lookup from a .dat to .nc file
+# Link the input files
+ln -sf ${ICONDIR}/data/ECHAM6_CldOptProps.nc ECHAM6_CldOptProps.nc
+ln -sf ${ICONDIR}/data/rrtmg_lw.nc rrtmg_lw.nc
+ln -sf ${ICONDIR}/data/dmin_wetgrowth_lookup.nc ./
+
+# >> sylvia_20230921 no restart or vertical grid files to link for now
+# link the appropriate restart file
+ln -sf /scratch/b/b380873/0V2M0A1R0O/icon-grid_tropic_55e115e5s40n_R2500m_restart_atm_20170808T030000Z.nc ${EXPDIR}/restart_atm_DOM01.nc
+# link the vertical grid file
+#ln -sf /work/bb1018/b380873/vgrid_max_lay_thckn_200.nc vgrid_DOM01.nc
+#ln -sf ${ICONDIR}/data/vgrid_icon-grid_tropic_55e115e5s40n_tropic_TTL2.nc vgrid_DOM01_tropic_TTL2.nc
+
+GRIDKM=R2500m
+GRIDRB=R2B01
+INDATADIR=/scratch/b/b383018/TROPIC/
+
+# link the grid and the external parameters
+ln -sf $INDATADIR/grids/icon-grid_tropic_55e115e5s40n_${GRIDKM}.nc ${EXPDIR}/ #iconDOM01-grid.nc
+ln -sf $INDATADIR/extpar/extpar_icon-grid_tropic_55e115e5s40n_${GRIDKM}_bitmap.nc extpar_icon-grid_tropic_55e115e5s40n_R2500m.nc
+
+# initial data based on INIDATE
+#ln -sf ${INDATADIR}initlatbcdata/an${INIDATE}/${GRIDKM}/ifs2icon_tropic_55e115e5n40n_${GRIDKM}_an${INIDATE}_fcstep00.nc ifs2icon_${GRIDRB}_DOM01.nc
+ln -sf /scratch/b/b383018/TROPIC/initlatbcdata/an2017080512/R2500m/ifs2icon_tropic_55e115e5s40n_R2500m_an2017080512_fcstep00.nc ifs2icon_R2B01_DOM01.nc
+
+# loop over ifs latbc data and link it
+IFSYEAR=${INIDATE:0:4}
+IFSMONTH=${INIDATE:4:2}
+
+for IFSDAY in 5 6 7 8 9; do
+   for IFSHOUR in 0 12; do
+      for IFSSTEP in 0 3 6 9; do
+         let "ICONHOUR=IFSHOUR+IFSSTEP"
+         # if it is the 5th only use the hour 12
+         if [ ${IFSDAY} -eq 5 ] && [ ${IFSHOUR} -eq 0 ]; then
+             continue
+         # insert 0 before IFSHOUR and ICONHOUR if IFSHOUR=0
+         elif [ ${IFSHOUR} -eq 0 ]; then
+             IFSDATE=${IFSYEAR}${IFSMONTH}0${IFSDAY}0${IFSHOUR}
+             ICONDATE=${IFSYEAR}${IFSMONTH}0${IFSDAY}0${ICONHOUR}
+             INIFOLDER=/scratch/b/b383018/TROPIC/initlatbcdata/an${IFSDATE}/${GRIDKM}
+             ln -sf ${INIFOLDER}/ifs2icon_tropic_55e115e5s40n_${GRIDKM}_an${IFSDATE}_fcstep0${IFSSTEP}.nc ifs2icon_${GRIDRB}_DOM01_${ICONDATE}.nc
+         elif [ ${IFSHOUR} -eq 12 ]; then
+             IFSDATE=${IFSYEAR}${IFSMONTH}0${IFSDAY}${IFSHOUR}
+             ICONDATE=${IFSYEAR}${IFSMONTH}0${IFSDAY}${ICONHOUR}
+             INIFOLDER=/scratch/b/b383018/TROPIC/initlatbcdata/an${IFSDATE}/${GRIDKM}
+             ln -sf ${INIFOLDER}/ifs2icon_tropic_55e115e5s40n_${GRIDKM}_an${IFSDATE}_fcstep0${IFSSTEP}.nc ifs2icon_${GRIDRB}_DOM01_${ICONDATE}.nc
+         else
+             echo "Something is wrong here ...; aborting"
+         fi
+      done
+   done
+done
+
+# model timing
+INIYEAR=${INIDATE:0:4}
+INIMONTH=${INIDATE:4:2}
+INIDAY=${INIDATE:6:2}
+INIHOUR=${INIDATE:8:2}
+
+# simulation time settings
+start_date=${INIYEAR}-${INIMONTH}-${INIDAY}T${INIHOUR}:00:00Z # format of specified model time is YYYY-MM-DDTHH:MM:SSZ
+# sylvia_20250604 change end_date
+end_date="2017-08-08T07:10:00Z"
+dtime=24  # 360 sec for R2B6, 120 sec for R3B7
+nhours=6  # produce restart files every 6 hours
+dt_restart=21600  # `expr ${nhours_restart} \*  3600 `
+#nsteps=`expr ${ndays} \* 86400 / ${dtime} + 10`  # add 10 time steps to make sure that restart file is written at end of 2-day chunk
+
+# create ICON master namelist
+atmo_namelist=NAMELIST_${EXPNAME}
+cat > icon_master.namelist << EOF
+&master_nml
+  lrestart           = .true.
+/
+&time_nml
+ ini_datetime_string = "${start_date}"
+ end_datetime_string = "${end_date}"
+ dt_restart          = $dt_restart
+/
+&master_model_nml
+  model_type=1
+  model_name="ATMO"
+  model_namelist_filename="$atmo_namelist"
+  model_min_rank=1
+  model_max_rank=65536
+  model_inc_rank=1
+/
+EOF
+
+# create ICON atmosphere namelist
+cat > ${atmo_namelist} << EOF
+&parallel_nml
+ nproma            = 8      ! optimal setting 8 for CRAY; use 16 or 24 for IBM
+ p_test_run        = .false.
+ l_test_openmp     = .false.
+ l_log_checks      = .false.
+ num_io_procs      = 5     ! asynchronous output for values >= 1
+ itype_comm        = 1
+ iorder_sendrecv   = 3      ! best value for CRAY (slightly faster than option 1)
+ num_prefetch_proc = 1
+/
+&grid_nml
+ dynamics_grid_filename  = 'icon-grid_tropic_55e115e5s40n_R2500m.nc'
+ radiation_grid_filename = ''
+ dynamics_parent_grid_id = 0
+ lredgrid_phys           = .false.
+ lfeedback               = .false.
+ l_limited_area          = .true.
+ start_time              = 0.
+/
+&initicon_nml
+ init_mode                    = 2           ! initialization mode (2 for IFS ana, 1 for DWD ana, 4=cosmo, 2=ifs, 3=combined
+/
+&limarea_nml
+ itype_latbc                  = 1
+ dtime_latbc                  = 10800.
+ latbc_path                   = '${EXPDIR}'
+ latbc_filename               = 'ifs2icon_${GRIDRB}_DOM01_<y><m><d><h>.nc'
+ latbc_varnames_map_file      = '${ICONDIR}/run/dict.latbc'
+/
+&run_nml
+ num_lev                      = 75  ! number of full levels of vertical grid
+ lvert_nest                   = .false.
+ dtime                        = ${dtime}    ! timestep in seconds
+ ldynamics                    = .TRUE.      ! dynamics
+ ltransport                   = .TRUE.
+ ntracer                      = 5
+ iforcing                     = 3           ! NWP forcing
+ ltestcase                    = .FALSE.     ! false: run with real data
+ msg_level                    = 7           ! default: 5, much more: 20
+ ltimer                       = .true.
+ timers_level                 = 4
+ activate_sync_timers         = .FALSE.
+ output                       = 'nml','totint'
+ check_uuid_gracefully        = .TRUE.
+ timers_level                 = 10
+/
+&nwp_phy_nml
+ inwp_gscp                    = 4     ! 1: default, 2: graupel, 4: for two-moment
+ inwp_convection              = 1 ! but only shallow convection, see next line
+ lshallowconv_only            = .true. ! use shallow convection scheme
+ inwp_radiation               = 4  ! >>sylvia_20231218 make sure we are using ecrad
+ inwp_cldcover                = 1     ! 0: no cld, 1: new diagnostic, 3: COSMO, 5: grid scale
+ inwp_turb                    = 1     ! 1/10: Raschendorfer, 2: GME, 3: EDMF-DUALM (ntracer+1,ntiles=8)
+ inwp_satad                   = 1
+ inwp_sso                     = 0 !1
+ inwp_gwd                     = 1 !0 Turn on or off orographic gravity wave drag
+ inwp_surface                 = 1
+ itype_z0                     = 2     ! 1: default, 2: turn off SSO part of z0
+ dt_conv                      = 300
+ dt_sso                       = 300
+ dt_gwd                       = 300
+ dt_rad                       = 720
+ latm_above_top               = .false.
+ efdt_min_raylfric            = 7200.
+ icapdcycl                    = 3
+ icpl_rad_reff		      = 1
+ icalc_reff                   = 100
+/
+&turbdiff_nml
+ tkhmin                       = 0.75
+ tkmmin                       = 0.75
+ pat_len                      = 750.
+ c_diff                       = 0.2
+ rat_sea                      = 0.8 ! >>edgardo_20241016: from Daniel suggestions. Previous number was 8.0
+ ltkesso                      = .true.
+ frcsmot                      = 0.2      ! these 2 switches together apply vertical smoothing of the TKE source terms
+ imode_frcsmot                = 2  ! in the tropics (only), which reduces the moist bias in the tropical lower troposphere
+ itype_sher                   = 3
+ ltkeshs                      = .true.
+ a_hshr                       = 2.0
+ alpha0                       = 0.0123
+ alpha0_max                   = 0.0335
+ rlam_heat                    = 10 ! >>edgardo_20241016: from Daniel suggestion
+ alpha1                       = 0.125 ! >>edgardo_20241016: from Daniel suggestion
+/
+&nwp_tuning_nml
+ tune_rcucov                  = 0.075 ! >>edgardo_20241016 new nml to include Daniel suggestion
+ tune_rhebc_land              = 0.825 ! >>edgardo_20241016  
+ tune_zvz0i                   = 0.85  ! >>edgardo_20241016
+ tune_gust_factor             = 7.0   ! >>edgardo_20241016: Daniel said gust_factor
+ icpl_turb_clc                = 2     ! >>edgardo_20241016
+ max_calibfac_clcl            = 2.0   ! >>edgardo_20241016
+ tune_box_liq                 = 0.04  ! >>edgardo_20241016
+ tune_box_liq_asy             = 4     ! >>edgardo_20241016: Daniel said box_liq_asy
+/
+&lnd_nml
+ ntiles                       = 1   ! changed from 3 to 1 sylvia_20200128
+ nlev_snow                    = 3
+ lmulti_snow                  = .false.
+ itype_heatcond               = 2
+ idiag_snowfrac               = 2
+ lsnowtile                    = .false.  !! later on .true. if GRIB encoding issues are solved
+ lseaice                      = .true.
+ llake                        = .true.
+ itype_lndtbl                 = 3  ! minimizes moist/cold bias in lower tropical troposphere
+ itype_root                   = 2
+/
+&radiation_nml
+ irad_o3                      = 7           ! 6: GME, 7: GEMS, 9: MACC
+ irad_aero                    = 6
+ izenith                      = 4           ! 4: NWP default, 3: no annual cycle
+ albedo_type                  = 2           ! 2: Modis albedo
+ iice_scat                    = 0           ! >>sylvia_20231223 >>edgardo_20240821, 0 Fu, 1 Baran16, 2 Baran14, 3 Yi2013, 4 Baran17
+ vmr_co2                      = 390.1e-06    ! trace gase values representative for 2012
+ vmr_ch4                      = 1800.e-09
+ vmr_n2o                      = 322.0e-09
+ vmr_o2                       = 0.20946
+ vmr_cfc11                    = 240.e-12
+ vmr_cfc12                    = 532.e-12
+ ecrad_data_path              = '${ICONDIR}/externals/ecrad/data'
+ albedo_whitecap              = 1 ! >> edgardo_20241016: Daniel suggestion
+/
+&nonhydrostatic_nml
+ iadv_rhotheta                = 2
+ ivctype                      = 2
+ itime_scheme                 = 4
+ exner_expol                  = 0.333
+ vwind_offctr                 = 0.2
+ damp_height                  = 20000.
+ rayleigh_coeff               = 1.0     ! >> sylvia_20200709, Panos suggested to increase this.
+ lhdiff_rcf                   = .TRUE.
+ divdamp_order                = 24
+ divdamp_type                 = 32
+ divdamp_fac                  = 0.004
+ l_open_ubc                   = .FALSE.
+ igradp_method                = 3
+ l_zdiffu_t                   = .true.
+ thslp_zdiffu                 = 0.02
+ thhgtd_zdiffu                = 125.
+ htop_moist_proc              = 22500.
+ hbot_qvsubstep               = 19000.
+/
+&sleve_nml
+ min_lay_thckn                = 20.
+ max_lay_thckn                = 400.
+ htop_thcknlimit              = 14000.
+ top_height                   = 30000.
+ stretch_fac                  = 0.9
+ decay_scale_1                = 4000.
+ decay_scale_2                = 2500.
+ decay_exp                    = 1.2
+ flat_height                  = 16000.
+/
+&dynamics_nml
+ iequations                   = 3
+ idiv_method                  = 1
+ divavg_cntrwgt               = 0.50
+ lcoriolis                    = .TRUE.
+/
+&transport_nml
+ ctracer_list                 = '12345'
+ ivadv_tracer                 = 3,3,3,3,3
+ itype_hlimit                 = 3,4,4,4,4,0
+ ihadv_tracer                 = 52,2,2,2,2,0
+/
+&diffusion_nml
+ hdiff_order                  = 5
+ itype_vn_diffu               = 1
+ itype_t_diffu                = 2
+ hdiff_efdt_ratio             = 24.0       ! 24.0 for R2B6; recommendation for R3B7: 30.0
+ hdiff_smag_fac               = 0.025      ! 0.025for R2B6; recommendation for R3B7: 0.02
+ lhdiff_vn                    = .TRUE.
+ lhdiff_temp                  = .TRUE.
+/
+&interpol_nml
+ nudge_zone_width             = 8  !-1 create nudge zone in grid
+ lsq_high_ord                 = 2
+ rbf_vec_scale_c              = 0.09, 0.03, 0.010  ! >> sylvia_20200331, reverting to *original* script
+ rbf_vec_scale_v              = 0.21, 0.07, 0.025
+ rbf_vec_scale_e              = 0.45, 0.15, 0.050
+/
+&gridref_nml
+! grf_intmethod_ct            = 1
+ grf_intmethod_e              = 6   ! default 6
+ grf_scalfbk                  = 1
+ grf_tracfbk                  = 1
+ denom_diffu_v                = 150.
+ rbf_scale_grf_e              = 0.4, 0.3, 0.25   ! default:  0.5, 0.4, 0.35
+/
+&extpar_nml
+ itopo                        = 1
+ n_iter_smooth_topo           = 1,1,2
+ heightdiff_threshold         = 1000.,1000.,750.
+! itype_lwemiss                = 2 ! >> edgardo_20241016, Daniel suggestion
+/
+&io_nml
+ lflux_avg                    = .FALSE. ! false: accumulated fluxes
+ itype_pres_msl               = 4       ! 3: new IFS T and pressure calculation below ground
+                                        ! 4: IFS method with bug fix for self-consistency between SLP and geopotential
+ itype_rh                     = 1       ! RH w.r.t. water
+ restart_file_type            = 5       ! 4: netcdf2, 5: netcdf4
+ dt_checkpoint                = 86400.0 ! checkpoint restart files
+ inextra_3d                   = 0       ! >> sylvia_20200915, Additional 3D fields for debugging
+ inextra_2d                   = 0       ! >> sylvia_20200915, Additional 2D fields for debugging
+/
+&output_nml
+ filetype                       = 5     ! >> sylvia_20250604, all vars one file + reduced spatial domain
+ dom                            = -1
+ mode                           = 1
+ output_time_unit               = 1
+ output_bounds                  = 0., 2000000., 600.
+ steps_per_file                 = 1
+ include_last                   = .FALSE.
+ output_filename                = '${EXPNAME}'
+ pl_varlist                     = 'QV','QI','QC','QS','QG','TOT_QV_DIA','TOT_QI_DIA','TOT_QC_DIA','TKE','RH','CLC','U','V','W','OMEGA','TEMP','TEMP_IFC'
+ p_levels                       = 93858.84, 93556.10, 93093.62, 92505.65, 91811.62, 91023.03, 90148.63, 89194.87, 88167.18, 87070.31, 85908.50, 84685.48, 83404.79, 82069.64, 80683.25, 79248.57, 77768.31, 76256.27, 74682.04, 73081.25, 71445.63, 69777.88, 68086.06, 66356.54, 64608.32, 62838.66, 61050.42, 59246.45, 57429.49, 55602.32, 53767.86, 51929.04, 50088.68, 48249.40, 46413.61, 44583.58, 42761.35, 40948.79, 39147.76, 37360.53, 35589.87, 33839.18, 32112.01, 30427.35, 28806.02, 27251.13, 25760.59, 24332.17, 22963.68, 21653.10, 20398.54, 19198.33, 18050.89, 16954.79, 15908.69, 14848.30, 13748.45, 12646.47, 11556.10, 10485.16, 9446.17, 8460.72, 7542.43, 6695.34, 5917.27, 5204.86, 4555.34, 3966.51, 3435.85, 2960.39, 2536.82, 2161.48, 1830.63, 1540.54, 1287.89
+ filename_format                = "ICON_3D_flight_<output_filename>_<jfile>"
+ output_grid                    = .FALSE.
+ remap                          = 1
+ reg_lat_def                   = 19., 0.025, 30.
+ reg_lon_def                   = 80., 0.025, 90.
+/
+&output_nml
+filetype                       = 5
+dom                            = -1
+mode                           = 1
+output_time_unit               = 1
+output_bounds                  = 0., 2000000., 600.
+steps_per_file                 = 1
+include_last                   = .FALSE.
+output_filename                = '${EXPNAME}'
+ml_varlist                     = 'LWFLX_DN','LWFLX_UP','LWFLX_DN_CLR','LWFLX_UP_CLR','SWFLX_DN','SWFLX_UP','SWFLX_DN_CLR','SWFLX_UP_CLR'
+filename_format                = "RAD_3D_ML_flight_<output_filename>_<jfile>"
+output_grid                    = .FALSE.
+remap                          = 1
+reg_lat_def                    = 19., 0.025, 30.
+reg_lon_def                    = 80., 0.025, 90.
+/
+EOF
+
+# This section of the run script prepares and starts the model integration.
+# get model
+export MODEL=${BINDIR}/icon
+ls -l ${MODEL}
+
+# start experiment
+rm -f finish.status
+date
+${START} ${MODEL}
+date
+
+finish_status=`cat finish.status`
+echo $finish_status
+echo "============================"
+echo "Script run successfully: $finish_status"
+echo "============================"
+namelist_list=""
+cd ${RUNSCRIPTDIR}
