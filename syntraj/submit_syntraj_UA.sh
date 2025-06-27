@@ -6,9 +6,9 @@
 #SBATCH --mem=200gb
 #SBATCH --nodes=4
 #SBATCH --qos=user_qos_sylvia
-#SBATCH --output=/groups/sylvia/UTLS-profiles/traj/syntraj/LOG_syntraj.%j.o
-#SBATCH --error=/groups/sylvia/UTLS-profiles/traj/syntraj/LOG_syntraj.%j.o
-#SBATCH --time=02:30:00
+#SBATCH --output=/groups/sylvia/UTLS-profiles/syntraj/LOG_syntraj.%j.o
+#SBATCH --error=/groups/sylvia/UTLS-profiles/syntraj/LOG_syntraj.%j.o
+#SBATCH --time=01:00:00
 
 #source activate ncplot
 python extractme.py

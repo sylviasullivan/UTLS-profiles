@@ -4,3 +4,6 @@ obs/
 output/
 syntraj/LOG*
 .ipynb_checkpoints/
+traj/__pycache__/
+utilities/__pycache__/
+syntraj/__pycache__/
