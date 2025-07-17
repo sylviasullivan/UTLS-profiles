@@ -4,15 +4,21 @@ import sys, time
 import pandas as pd
 import datetime
 from extractFunc import extractFunc
+from collocateFunc import collocateFunc
 
 # Run this driver like python extractDriver.py <sim_acronym> (e.g., python extractDriver.py 1M0O)
 sim_acronym = sys.argv[1]
+syntraj_type = sys.argv[2]
 
 # Parameters that can be varied (number of trajectories; lat/lon, altitude, and time interval sizes)
 n_traj = 20
 ll_int = 0.25  # [+/- degrees from flight location]
-alt_int = 1    # [+/- number of altitudinal levels from flight location]
-time_int = 10  # [+/- minutes from flight time]
+##alt_int = 1    # [+/- number of altitudinal levels from flight location]
+##time_int = 10  # [+/- minutes from flight time]
+
+# Overwrite n_traj if we perform collocation; no random sampling in this case
+if syntraj_type == 'C':
+    n_traj = 1
 
 # Load the ICON and flight track values
 bd1 = '/xdisk/sylvia/UTLS_flight_output/'
@@ -31,7 +37,7 @@ data_vars['lon'] = ( ["time","ntraj"], np.empty((0, n_traj )) )
 data_vars['alt'] = ( ["time","ntraj"], np.empty((0, n_traj )) )
 
 syn_traj = xr.Dataset(  data_vars=data_vars, coords=dict( time=np.empty((0,), dtype='datetime64[ns]' ),
-                         ntraj=np.arange(0, n_traj) ) ) #1,n_traj+1
+                         ntraj=np.arange(0, n_traj) ) )
 
 # Set the variable attributes for the synthetic trajectories as in the standard ICON output file.
 for v in syn_traj.data_vars:
@@ -56,7 +62,10 @@ for flight_iter, flight_time in enumerate(flight_times):
     flight_lon = Stratoclim['BEST:LON'].sel(time=flight_time_not_np).values
     flight_alt = Stratoclim['BEST:ALT'].sel(time=flight_time_not_np).values
 
-    # Based on the flight values, load the relevant chunk of simulations
-    syn_traj = extractFunc( syn_traj, ICON, flight_time_not_np, flight_pressure, flight_lat, flight_lon, flight_alt, n_traj, ll_int, alt_int, time_int )
+    # Now run the correct extraction / collocation function on the simulation output
+    if 'E' in syntraj_type:
+        syn_traj = extractFunc( syn_traj, ICON, flight_time_not_np, flight_pressure, flight_lat, flight_lon, flight_alt, n_traj, ll_int )
+    elif syntraj_type == 'C':
+        syn_traj = collocateFunc( syn_traj, ICON, flight_time_not_np, flight_pressure, flight_lat, flight_lon, flight_alt )
 
-syn_traj.to_netcdf(path='/groups/sylvia/UTLS-profiles/output/ICON_synthetic_trajs_' + sim_acronym + '_E.nc')
+syn_traj.to_netcdf(path='/groups/sylvia/UTLS-profiles/output/ICON_synthetic_trajs_' + sim_acronym + '_' + syntraj_type + '.nc')

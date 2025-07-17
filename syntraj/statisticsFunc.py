@@ -15,9 +15,9 @@ def statisticsFunc( ds, bins_sims ):
     warnings.filterwarnings("ignore", message="Degrees of freedom <= 0 for slice")
 
     # Calculate derived variables
-    theta = calc_theta( ds['temp'], ds['plev'] )
+    theta = calc_theta( ds['temp'], ds['pressure'] )
     # qv [=] kg kg-1 below
-    RHi = calc_RHi( ds['temp'], ds['plev'], ds['qv'] )
+    RHi = calc_RHi( ds['temp'], ds['pressure'], ds['qv'] )
     ds = ds.assign( theta=theta, RHi=RHi )
 
     # Define the dimension sizes
@@ -25,9 +25,10 @@ def statisticsFunc( ds, bins_sims ):
     n_traj = ds.dims["ntraj"]
 
     # Calculate a bin index for each time-traj point
-    bin_idx = xr.apply_ufunc( lambda alt: np.digitize(alt, bins_sims), ds["alt"],
-                              input_core_dims=[["time"]], output_core_dims=[["time"]],
-                              vectorize=True, output_dtypes=[int] )
+    #bin_idx = xr.apply_ufunc( lambda alt: np.digitize(alt, bins_sims), ds["alt"],
+    #                          input_core_dims=[["time"]], output_core_dims=[["time"]],
+    #                          vectorize=True, output_dtypes=[int] )
+    bin_idx = np.digitize( ds.alt, bins_sims )
 
     # Constants needed for mixing ratio conversion
     mw_dryair = 28.97*1000    # kg air (mol air)-1
@@ -48,7 +49,7 @@ def statisticsFunc( ds, bins_sims ):
 
         for t in np.arange(n_traj):
             for b in np.arange(n_bins):
-                mask = bin_idx.isel(ntraj=t) == b
+                mask = bin_idx[:,t] == b
                 traj_data = data.isel(ntraj=t).where(mask)
                 if traj_data.size > 0:
                     output[0, b, t] = np.nanmean(traj_data)

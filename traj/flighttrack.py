@@ -16,6 +16,7 @@ def read_flighttrack( time0, timef ):
     qv_fish = daten['BEST:H2O_enh'].sel( time=slice(time0, timef) )
     qi = daten['BEST:IWC'].sel( time=slice(time0, timef) )
     temp = daten['BEST:TEMP'].sel( time=slice(time0, timef) )
+    pressure = daten['BEST:PRESS'].sel( time=slice(time0, timef) )
     theta = daten['BEST:THETA'].sel( time=slice(time0, timef) )
     rhice_flash = daten['BEST:RH_ice_gas'].sel( time=slice(time0, timef) )
     rhice_fish = daten['BEST:RH_ice_enh'].sel( time=slice(time0, timef) )
