@@ -1,7 +1,7 @@
 # Calculate the mean, median, and standard deviation of variables 
 # tracked along simulation trajectories in dataset ds + theta and RHi.
-# bins_sim refers to the vertical bins to be used from the simulation data.
-def statisticsFunc( ds, bins_sims ):
+# plevs refers to the pressure bins to be used from the simulation data.
+def statisticsFunc( ds, plevs ):
 
     import numpy as np
     import warnings, time
@@ -21,14 +21,17 @@ def statisticsFunc( ds, bins_sims ):
     ds = ds.assign( theta=theta, RHi=RHi )
 
     # Define the dimension sizes
-    n_bins = len(bins_sims)
+    n_bins = len(plevs)
     n_traj = ds.dims["ntraj"]
 
     # Calculate a bin index for each time-traj point
-    #bin_idx = xr.apply_ufunc( lambda alt: np.digitize(alt, bins_sims), ds["alt"],
-    #                          input_core_dims=[["time"]], output_core_dims=[["time"]],
-    #                          vectorize=True, output_dtypes=[int] )
-    bin_idx = np.digitize( ds.alt, bins_sims )
+    pressure_vals = ds.pressure.values
+    bin_idx = np.empty_like(pressure_vals, dtype=int)
+    for i in range(pressure_vals.shape[0]):
+        for j in range(pressure_vals.shape[1]):
+            val = pressure_vals[i,j]
+            ii = np.argmin(np.abs(plevs - val))
+            bin_idx[i,j] = ii
 
     # Constants needed for mixing ratio conversion
     mw_dryair = 28.97*1000    # kg air (mol air)-1
@@ -48,7 +51,7 @@ def statisticsFunc( ds, bins_sims ):
         output = np.full((3, n_bins, n_traj), np.nan)
 
         for t in np.arange(n_traj):
-            for b in np.arange(n_bins):
+            for b in np.arange(len(plevs)):
                 mask = bin_idx[:,t] == b
                 traj_data = data.isel(ntraj=t).where(mask)
                 if traj_data.size > 0:
@@ -57,6 +60,6 @@ def statisticsFunc( ds, bins_sims ):
                     output[2, b, t] = np.nanstd(traj_data)
 
         for i, stat in enumerate(stat_names):
-           stats[f"{var}_{stat}"] = (["alt", "ntraj"], output[i,:,:])
+           stats[f"{var}_{stat}"] = (["pressure", "ntraj"], output[i,:,:])
 
-    return xr.Dataset( stats, coords={"alt": bins_sims, "ntraj": np.arange(n_traj)} )
+    return xr.Dataset( stats, coords={"pressure": plevs, "ntraj": np.arange(n_traj)} )

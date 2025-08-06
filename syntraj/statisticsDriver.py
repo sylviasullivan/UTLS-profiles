@@ -14,12 +14,10 @@ tag = sys.argv[2]
 # '_2' - Second set of randomly sampled synthetic trajectories to test reproducibility
 # '_3' # Third set of randomly sampled synthetic trajectories to test reproducibility
 
-# Create bins for ICON synthetic trajectories from the vertical grid file
-vgrid = xr.open_dataset('/xdisk/sylvia/vgrid_icon-grid_tropic_55e115e5s40n.nc')
-alt = vgrid.vct_a.values[:,0]
-j = np.argwhere( (alt >= 5000) & (alt <= 22000) )
-bins_sims = alt[ j[:,0] ]
-print( 'Total vertical bins to be used: ' + str(len(bins_sims)) )
+# Discrete pressure levels from ICON simulation for binning
+file = xr.open_dataset( '/xdisk/sylvia/UTLS_flight_output/1M0O/ICON_3D_flight_1M0O.nc' )
+plevs = file.plev.values
+print( 'Total pressure bins to be used: ' + str(len(plevs)) )
 
 # Time range from Lee et al. 2019 (6:20-6:48 UTC)
 #time0 = datetime(2017, 8, 8, 6, 20)
@@ -33,5 +31,5 @@ st = xr.open_dataset(bd + 'ICON_synthetic_trajs_' + s + '_' + tag + '.nc')
 ds_current = st.sel( time=slice(time0, timef) )
 
 # Evaluate the statistics on ds_current and save
-stats = statisticsFunc( ds_current, bins_sims )
+stats = statisticsFunc( ds_current, plevs )
 stats.to_netcdf( bd + 'ICON_synthetic_trajs_stats_' + s + '_' + tag + '.nc' )

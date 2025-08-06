@@ -11,18 +11,18 @@
 #SBATCH --time=08:00:00
 
 # Extract subset
-python syntrajDriver.py 1M0O E2
-python statisticsDriver.py 1M0O E2
-python syntrajDriver.py 1M1O E2
-python statisticsDriver.py 1M1O E2
-python syntrajDriver.py 1M3O E2
-python statisticsDriver.py 1M3O E2
-python syntrajDriver.py 2M0O E2
-python statisticsDriver.py 2M0O E2
-python syntrajDriver.py 2M1O E2
-python statisticsDriver.py 2M1O E2
-python syntrajDriver.py 2M3O E2
-python statisticsDriver.py 2M3O E2
+#python syntrajDriver.py 1M0O E
+python statisticsDriver.py 1M0O E
+#python syntrajDriver.py 1M1O E
+python statisticsDriver.py 1M1O E
+#python syntrajDriver.py 1M3O E
+python statisticsDriver.py 1M3O E
+#python syntrajDriver.py 2M0O E
+python statisticsDriver.py 2M0O E
+#python syntrajDriver.py 2M1O E
+python statisticsDriver.py 2M1O E
+#python syntrajDriver.py 2M3O E
+python statisticsDriver.py 2M3O E
 
 # Collocate subset
 #python syntrajDriver.py 1M0O C
