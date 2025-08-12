@@ -6,7 +6,7 @@ def sim_colors():
             '2M1O': (0.8, 0.4745, 0.6549), '2M3O': (0.9019, 0.6235, 0), 'ERA': (0.45, 0.35, 0.6),
             'MLS': (0.6, 0.2, 0.2), 'Sonde': (0.0, 0.35, 0.45), 
             'CloudSat': (0.3373, 0.7058, 0.9137), 'CERES': (0.3373, 0.7058, 0.9137),
-            'POSIDON': (0.3373, 0.7058, 0.9137), 'ATTREX': (0, 0, 0)}
+            'POSIDON': (0.5, 0.5, 0.5), 'ATTREX': (0, 0, 0), '2M0O-Tprime': (0.8, 0.155, 0.196)}
 
 def runmean( series, n ):
     running_mean = np.convolve( series, np.ones(n)/n, mode='valid' )
