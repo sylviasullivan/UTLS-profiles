@@ -92,6 +92,11 @@ def running_mean2(x, N, a):
     else:
         return (cumsum[N:] - cumsum[:-N]) / float(N)
 
+# Print the min, median, mean, and max for an array aaa
+def print_stats( aaa ):
+    print( 'Min / Median / Mean / Max: ' )
+    print( np.nanmin(aaa), np.nanmedian(aaa), np.nanmean(aaa), np.nanmax(aaa) )
+
 # Function for heat of sublimation, Rogers and Yau Ch2
 # T [=] K, Li [=] J kg-1
 def heatSub(T):

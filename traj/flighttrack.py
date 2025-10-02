@@ -98,6 +98,35 @@ def bin_flighttrack_general( plevs, p1, qv_flash, qv_fish, p2, qi, p3, temp, the
              compute_stats(qi_list), compute_stats(RHi_list) )
 
 
+# Determine which synthetic flight track is 'best' as the one that minimizes the model-observation
+# bias in its value the most frequently
+def best_track( model_values, obs_values ):
+    import xarray as xr
+    import numpy as np
+    
+    # Calculate the biases and for which trajectory they are minimized
+    # Align (in time) the simulated and in-situ fields. Otherwise if calendars are slightly off, we get all-NaN slices.
+    sim_al, sc_al = xr.align(model_values, obs_values, join='inner')
+    diff  = sim_al - sc_al
+    absdiff = np.abs(diff) 
+
+    # Where is absdiff not nan or infinite?
+    finite = np.isfinite(absdiff)
+
+    # At each time step, does at least one trajectory have a finite absdiff?
+    valid_any = finite.any(dim='ntraj')
+
+    # Fill NaNs with infinities so that they will not be picked up. Then choose the minimum index at each time step.
+    jmin_da = absdiff.fillna(np.inf).argmin(dim='ntraj')
+
+    # Then mask out the time steps where valid_any was False.
+    jmin_da = jmin_da.where(valid_any)
+
+    # Throw out those time steps masked to NaNs with valid_any and count which one occurs most often.
+    jmin = jmin_da.dropna('time').values.astype(int)
+    most_common_jmin = np.bincount(jmin).argmax()
+    return most_common_jmin
+
 # Utility function to retain only the whole-second measurements in the StratoClim data.
 def trimDataTime():
     from netCDF4 import num2date, Dataset
